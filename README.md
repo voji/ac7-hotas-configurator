@@ -120,6 +120,18 @@ Multiple POV hats: `POV_U2`, `POV_D2`, etc.
 - Try unplugging and reconnecting
 - Choose **Devices > Refresh Devices**
 
+### Device identification
+
+The selected device shows its SDL GUID, VID/PID, and identification status.
+VID/PID values are read from supported SDL GUID layouts, never guessed from device names.
+An identified device can be configured manually even if it has no built-in profile.
+
+If the status is **Identification required**, select the device and click **Set VID/PID**.
+Enter the hexadecimal IDs from Windows Device Manager, for example `231D:0200`.
+Manual overrides last until device refresh or application restart.
+Saving is blocked before writing if any assignment has a missing or invalid joystick section ID;
+the error lists the affected functions and devices.
+
 ### Device detected by tool but not by AC7
 
 Some devices aren't enumerated by AC7's DirectInput implementation. Options:

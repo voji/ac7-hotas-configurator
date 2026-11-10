@@ -6,7 +6,7 @@ GitHub: https://github.com/YOUR_USERNAME/ac7-hotas-configurator
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox, filedialog, simpledialog
 import os
 import re
 import sys
@@ -39,13 +39,6 @@ def check_dependencies():
 check_dependencies()
 
 import pygame
-
-# Windows registry for device detection
-try:
-    import winreg
-    HAS_WINREG = True
-except ImportError:
-    HAS_WINREG = False
 
 # =============================================================================
 # Constants and Device Database
@@ -225,42 +218,23 @@ def find_ac7_config():
     return None
 
 
-def get_registry_devices():
-    """Scan Windows registry for joystick devices"""
-    devices = []
-    if not HAS_WINREG:
-        return devices
+def get_guid_vid_pid(guid):
+    """Decode the standard SDL2 GUID layout; never infer IDs from a name.
 
-    try:
-        key_path = r"System\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM"
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path) as key:
-            i = 0
-            while True:
-                try:
-                    subkey_name = winreg.EnumKey(key, i)
-                    match = re.match(r'VID_([0-9A-Fa-f]+)&PID_([0-9A-Fa-f]+)', subkey_name)
-                    if match:
-                        vid = int(match.group(1), 16)
-                        pid = int(match.group(2), 16)
-
-                        try:
-                            with winreg.OpenKey(key, subkey_name) as dev_key:
-                                name, _ = winreg.QueryValueEx(dev_key, "OEMName")
-                        except:
-                            name = "Unknown Device"
-
-                        devices.append({
-                            'name': name,
-                            'vid': vid,
-                            'pid': pid,
-                        })
-                    i += 1
-                except OSError:
-                    break
-    except Exception as e:
-        print(f"Registry scan error: {e}")
-
-    return devices
+    Matches SDL 2.28.4 SDL_GetJoystickGUIDInfo's standard-layout checks:
+    https://github.com/libsdl-org/SDL/blob/release-2.28.4/src/joystick/SDL_joystick.c
+    """
+    if not isinstance(guid, str) or not re.fullmatch(r'[0-9a-fA-F]{32}', guid):
+        return None, None
+    raw = bytes.fromhex(guid)
+    bus = int.from_bytes(raw[:2], 'little')
+    if not (bus < 0x20 or bus == 0xFF):
+        return None, None
+    if raw[6:8] != b'\0\0' or raw[10:12] != b'\0\0':
+        return None, None
+    vid = int.from_bytes(raw[4:6], 'little')
+    pid = int.from_bytes(raw[8:10], 'little')
+    return (vid, pid) if vid and pid else (None, None)
 
 
 def get_ac7_section_id(vid, pid):
@@ -268,24 +242,6 @@ def get_ac7_section_id(vid, pid):
     if vid and pid:
         return f"Joystick-{pid:04X}{vid:04X}-0000-0000-0000-504944564944"
     return None
-
-
-def match_device_to_registry(pygame_name, registry_devices):
-    """Match a pygame device name to registry entry to get VID/PID"""
-    pygame_lower = pygame_name.strip().lower()
-
-    for dev in registry_devices:
-        reg_lower = dev['name'].strip().lower()
-        # Check for substring match in either direction
-        if pygame_lower in reg_lower or reg_lower in pygame_lower:
-            return dev['vid'], dev['pid']
-        # Check for partial word match
-        pygame_words = set(pygame_lower.split())
-        reg_words = set(reg_lower.split())
-        if len(pygame_words & reg_words) >= 2:
-            return dev['vid'], dev['pid']
-
-    return None, None
 
 
 # =============================================================================
@@ -300,7 +256,6 @@ class DeviceMonitor:
         pygame.joystick.init()
         self.joysticks = []
         self.device_info = []  # Stores VID/PID info
-        self.registry_devices = get_registry_devices()
 
     def refresh(self):
         """Refresh joystick list"""
@@ -315,12 +270,14 @@ class DeviceMonitor:
             js.init()
             self.joysticks.append(js)
 
-            # Get VID/PID
-            vid, pid = match_device_to_registry(js.get_name(), self.registry_devices)
+            guid = js.get_guid()
+            vid, pid = get_guid_vid_pid(guid)
             profile = DEVICE_PROFILES.get((vid, pid)) if vid else None
 
             self.device_info.append({
                 'name': js.get_name(),
+                'guid': guid,
+                'identity_source': 'Automatic' if vid else 'Identification required',
                 'vid': vid,
                 'pid': pid,
                 'profile': profile,
@@ -450,6 +407,9 @@ class AC7Configurator:
 
         self.device_info_label = ttk.Label(device_frame, text="")
         self.device_info_label.pack(side=tk.LEFT, padx=20)
+        ttk.Button(device_frame, text="Set VID/PID", command=self.set_device_identity).pack(side=tk.RIGHT)
+        self.device_identity_label = ttk.Label(main_frame, text="", wraplength=1050)
+        self.device_identity_label.pack(fill=tk.X, pady=(0, 5))
 
         # Split view
         split_frame = ttk.Frame(main_frame)
@@ -617,6 +577,7 @@ class AC7Configurator:
         else:
             self.device_combo.set("")
             self.device_info_label.config(text="No devices connected")
+            self.device_identity_label.config(text="")
             self.update_buttons([])
 
         self.status_label.config(text=f"Found {len(self.monitor.joysticks)} devices")
@@ -633,6 +594,40 @@ class AC7Configurator:
             self.device_info_label.config(
                 text=f"Axes: {info['num_axes']} | Buttons: {info['num_buttons']} | Hats: {info['num_hats']}"
             )
+            identity = (
+                f"VID:{info['vid']:04X} PID:{info['pid']:04X}"
+                if info['vid'] and info['pid'] else "VID/PID unavailable"
+            )
+            self.device_identity_label.config(
+                text=f"{identity} | {info['identity_source']} | GUID: {info['guid']}",
+                foreground="red" if not info['section_id'] else "#176b32"
+            )
+
+    def set_device_identity(self):
+        """Let the user explicitly resolve an unsupported GUID for this session."""
+        idx = self.device_combo.current()
+        if idx < 0 or idx >= len(self.monitor.device_info):
+            return
+        info = self.monitor.device_info[idx]
+        value = simpledialog.askstring(
+            "Device identification", "Enter hexadecimal VID:PID (for example 231D:0200).\n"
+            "Use IDs from Windows Device Manager. This override lasts until device refresh.",
+            parent=self.root
+        )
+        if value is None:
+            return
+        match = re.fullmatch(r'\s*([0-9a-fA-F]{4}):([0-9a-fA-F]{4})\s*', value)
+        if not match or not all(int(part, 16) for part in match.groups()):
+            messagebox.showerror("Invalid identity", "Enter nonzero four-digit hexadecimal VID:PID values.")
+            return
+        vid, pid = (int(part, 16) for part in match.groups())
+        info.update(vid=vid, pid=pid, section_id=get_ac7_section_id(vid, pid),
+                    profile=DEVICE_PROFILES.get((vid, pid)), identity_source='Manual')
+        for data in self.assignments.values():
+            if data.get('device_index') == idx:
+                data['section_id'] = info['section_id']
+        self.on_device_selected(None)
+        self.update_function_assignments()
 
     # =========================================================================
     # Auto-population
@@ -886,6 +881,22 @@ class AC7Configurator:
 
         if not os.path.exists(self.config_path):
             messagebox.showerror("Error", f"Config file not found:\n{self.config_path}")
+            return
+
+        unresolved = [
+            f"{func}: {data.get('device_name', 'Unknown')}"
+            for func, data in self.assignments.items()
+            if not isinstance(data.get('section_id'), str) or not re.fullmatch(
+                r'Joystick-[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}',
+                data['section_id']
+            )
+        ]
+        if unresolved:
+            messagebox.showerror(
+                "Device identification required",
+                "Nothing was saved. Resolve the device identity for these bindings:\n\n"
+                + "\n".join(unresolved) + "\n\nSelect the device and use Set VID/PID."
+            )
             return
 
         try:
