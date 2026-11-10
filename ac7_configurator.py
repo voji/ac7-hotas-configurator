@@ -373,6 +373,8 @@ class AC7Configurator:
         self.config_path = None
         self.assignments = {}  # func -> {device_index, section_id, input, modifiers}
         self.detected_devices = []
+        self.loaded_bindings = set()
+        self.loaded_sections = {}
 
         # Auto-detect config
         self.config_path = find_ac7_config()
@@ -383,8 +385,7 @@ class AC7Configurator:
         # Initial device scan
         self.refresh_devices()
 
-        # Auto-populate if devices found
-        self.auto_populate_bindings()
+        # Keep existing configuration; defaults are applied only on request.
 
         # Schedule monitoring on the Tkinter main thread
         self.schedule_monitor_update()
@@ -871,18 +872,23 @@ class AC7Configurator:
                 content = f.read()
 
             self.assignments.clear()
+            self.loaded_bindings.clear()
+            self.loaded_sections.clear()
             current_section = None
             current_name = None
 
             for line in content.split('\n'):
                 line = line.strip()
-                if line.startswith('[Joystick-'):
-                    current_section = line[1:-1]
+                if line.startswith('[') and line.endswith(']'):
+                    section = line[1:-1]
+                    current_section = section if section.startswith('Joystick-') else None
+                    current_name = None
                 elif line.startswith('ProductName='):
                     current_name = line.split('=', 1)[1].strip().strip('"')
                 elif line.startswith('Flight_') and '=' in line and current_section:
                     parts = line.split('=', 1)
-                    func, value = parts[0], parts[1].strip()
+                    func, value = parts[0].strip(), parts[1].strip()
+                    self.loaded_bindings.add((current_section, func))
                     if value:
                         # Parse modifiers
                         if ':' in value:
@@ -893,6 +899,7 @@ class AC7Configurator:
                             input_str = value
                             mods = ""
 
+                        self.loaded_sections[func] = current_section
                         self.assignments[func] = {
                             'device_name': current_name or "Unknown",
                             'section_id': current_section,
@@ -929,27 +936,73 @@ class AC7Configurator:
                         sections[sec] = {}
                     sections[sec][func] = data['input'] + data['modifiers']
 
-            # Rewrite file
+            # Remove only bindings deleted or moved since the last load.
+            removed = set()
+            for sec, func in self.loaded_bindings:
+                data = self.assignments.get(func)
+                if data is None or (
+                    self.loaded_sections.get(func) == sec
+                    and data.get('section_id') != sec
+                ):
+                    removed.add((sec, func))
+
             new_lines = []
             current_section = None
+            seen_sections = set()
+            written = set()
+
+            def append_missing_bindings():
+                for func, value in sections.get(current_section, {}).items():
+                    if (current_section, func) not in written:
+                        if new_lines and not new_lines[-1].endswith('\n'):
+                            new_lines[-1] += '\n'
+                        new_lines.append(f"{func}={value}\n")
+                        written.add((current_section, func))
 
             for line in lines:
                 stripped = line.strip()
-
-                if stripped.startswith('['):
-                    current_section = stripped[1:-1] if stripped.endswith(']') else None
+                if stripped.startswith('[') and stripped.endswith(']'):
+                    append_missing_bindings()
+                    current_section = stripped[1:-1]
+                    seen_sections.add(current_section)
 
                 if current_section and current_section.startswith('Joystick-'):
                     if stripped.startswith('Flight_') and '=' in stripped:
-                        func = stripped.split('=')[0]
-                        if current_section in sections and func in sections[current_section]:
-                            new_lines.append(f"{func}={sections[current_section][func]}\n")
+                        func = stripped.split('=', 1)[0].strip()
+                        if (current_section, func) in removed:
+                            # Empty the binding explicitly so AC7 cannot reuse it.
+                            new_lines.append(f"{func}=\n")
                             continue
-
+                        if func in sections.get(current_section, {}):
+                            new_lines.append(f"{func}={sections[current_section][func]}\n")
+                            written.add((current_section, func))
+                            continue
                 new_lines.append(line)
+
+            append_missing_bindings()
+            for sec, bindings in sections.items():
+                if sec in seen_sections:
+                    continue
+                if new_lines and not new_lines[-1].endswith('\n'):
+                    new_lines[-1] += '\n'
+                new_lines.append(f"\n[{sec}]\n")
+                name = next(
+                    data.get('device_name', 'Unknown')
+                    for data in self.assignments.values() if data.get('section_id') == sec
+                )
+                new_lines.append(f'ProductName="{name}"\n')
+                for func, value in bindings.items():
+                    new_lines.append(f"{func}={value}\n")
 
             with open(self.config_path, 'w') as f:
                 f.writelines(new_lines)
+
+            self.loaded_bindings = {
+                (sec, func) for sec, bindings in sections.items() for func in bindings
+            } | (self.loaded_bindings - removed)
+            self.loaded_sections = {
+                func: data.get('section_id') for func, data in self.assignments.items()
+            }
 
             self.status_label.config(text="Saved!")
             messagebox.showinfo("Success", f"Saved to:\n{self.config_path}\n\nRestart AC7 to apply changes.")
