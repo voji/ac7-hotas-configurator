@@ -120,6 +120,16 @@ Multiple POV hats: `POV_U2`, `POV_D2`, etc.
 - Try unplugging and reconnecting
 - Choose **Devices > Refresh Devices**
 
+### Axis identification
+
+Axis labels and assignments use the selected device's actual DirectInput objects.
+For example, a T-Rudder exposing only X, Z and a dial is shown as `X`, `Z`, `Slider1`,
+not as three consecutive X/Y/Z axes. Windows monitoring uses SDL's DirectInput backend
+so the displayed values follow the same axis order. Unknown, ambiguous or mismatched
+layouts show numbered axes with assignment disabled instead of guessing their names.
+Existing Input.ini bindings are not rewritten automatically; reassign previously
+mislabelled axes using the corrected labels and save.
+
 ### Device identification
 
 The selected device shows its SDL GUID, VID/PID, and identification status.

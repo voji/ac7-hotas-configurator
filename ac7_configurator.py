@@ -11,6 +11,8 @@ import os
 import re
 import sys
 
+from directinput_axes import enumerate_axis_layouts, select_axis_names
+
 # Check for required dependencies
 def check_dependencies():
     """Check and report missing dependencies"""
@@ -194,7 +196,6 @@ FLIGHT_FUNCTIONS = [
     ("Flight_CameraYaw", "Camera Yaw"),
 ]
 
-AXIS_NAMES = ["X", "Y", "Z", "Rx", "Ry", "Rz", "Slider1", "Slider2"]
 
 
 # =============================================================================
@@ -252,6 +253,11 @@ class DeviceMonitor:
     """Handles pygame joystick detection and monitoring"""
 
     def __init__(self):
+        # Match pygame axis ordering to the DirectInput objects queried below.
+        if os.name == 'nt':
+            for hint in ('SDL_JOYSTICK_HIDAPI', 'SDL_JOYSTICK_RAWINPUT',
+                         'SDL_JOYSTICK_WGI', 'SDL_XINPUT_ENABLED'):
+                os.environ[hint] = '0'
         pygame.init()
         pygame.joystick.init()
         self.joysticks = []
@@ -264,6 +270,13 @@ class DeviceMonitor:
 
         self.joysticks = []
         self.device_info = []
+
+        try:
+            layouts = enumerate_axis_layouts()
+            self.axis_error = ''
+        except OSError as exc:
+            layouts = []
+            self.axis_error = str(exc)
 
         for i in range(pygame.joystick.get_count()):
             js = pygame.joystick.Joystick(i)
@@ -282,6 +295,7 @@ class DeviceMonitor:
                 'pid': pid,
                 'profile': profile,
                 'section_id': get_ac7_section_id(vid, pid) if vid else None,
+                'axis_names': select_axis_names(layouts, get_ac7_section_id(vid, pid), js.get_numaxes()),
                 'num_axes': js.get_numaxes(),
                 'num_buttons': js.get_numbuttons(),
                 'num_hats': js.get_numhats(),
@@ -425,12 +439,16 @@ class AC7Configurator:
 
         self.axis_bars = []
         self.axis_labels = []
+        self.axis_name_labels = []
+        self.axis_assign_buttons = []
 
         for i in range(8):
             row = ttk.Frame(axes_frame)
             row.pack(fill=tk.X, pady=2)
 
-            ttk.Label(row, text=f"{AXIS_NAMES[i]}:", width=8).pack(side=tk.LEFT)
+            name_label = ttk.Label(row, text="N/A:", width=8)
+            name_label.pack(side=tk.LEFT)
+            self.axis_name_labels.append(name_label)
 
             bar = ttk.Progressbar(row, length=150, mode='determinate', maximum=100)
             bar.pack(side=tk.LEFT, padx=5)
@@ -439,8 +457,9 @@ class AC7Configurator:
             val_label.pack(side=tk.LEFT)
 
             btn = ttk.Button(row, text="Assign", width=7,
-                           command=lambda idx=i: self.assign_input('axis', idx))
+                           command=lambda idx=i: self.assign_input('axis', idx), state='disabled')
             btn.pack(side=tk.LEFT, padx=5)
+            self.axis_assign_buttons.append(btn)
 
             self.axis_bars.append(bar)
             self.axis_labels.append(val_label)
@@ -578,6 +597,7 @@ class AC7Configurator:
             self.device_combo.set("")
             self.device_info_label.config(text="No devices connected")
             self.device_identity_label.config(text="")
+            self.update_axis_controls([])
             self.update_buttons([])
 
         self.status_label.config(text=f"Found {len(self.monitor.joysticks)} devices")
@@ -602,6 +622,14 @@ class AC7Configurator:
                 text=f"{identity} | {info['identity_source']} | GUID: {info['guid']}",
                 foreground="red" if not info['section_id'] else "#176b32"
             )
+            self.update_axis_controls(info['axis_names'])
+
+    def update_axis_controls(self, axis_names):
+        """Use the same per-device names for display and assignment availability."""
+        for i, label in enumerate(self.axis_name_labels):
+            name = axis_names[i] if i < len(axis_names) else None
+            label.config(text=f"{name}:" if name else (f"Axis {i}:" if i < len(axis_names) else "N/A:"))
+            self.axis_assign_buttons[i].state(['!disabled' if name else 'disabled'])
 
     def set_device_identity(self):
         """Let the user explicitly resolve an unsupported GUID for this session."""
@@ -784,7 +812,11 @@ class AC7Configurator:
 
         # Build input string
         if input_type == 'axis':
-            input_str = AXIS_NAMES[input_idx]
+            axis_names = info['axis_names']
+            if input_idx < 0 or input_idx >= len(axis_names) or not axis_names[input_idx]:
+                self.assign_status.config(text="DirectInput axis identity unavailable", foreground="red")
+                return
+            input_str = axis_names[input_idx]
         else:
             input_str = f"Button{input_idx + 1}"
 
