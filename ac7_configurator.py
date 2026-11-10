@@ -7,8 +7,6 @@ GitHub: https://github.com/YOUR_USERNAME/ac7-hotas-configurator
 
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-import threading
-import time
 import os
 import re
 import sys
@@ -367,6 +365,9 @@ class AC7Configurator:
         # Core components
         self.monitor = DeviceMonitor()
         self.running = True
+        self.monitor_after_id = None
+        self.button_items = []
+        self.button_states = []
 
         # State
         self.config_path = None
@@ -385,8 +386,8 @@ class AC7Configurator:
         # Auto-populate if devices found
         self.auto_populate_bindings()
 
-        # Start monitor thread
-        self.start_monitor_thread()
+        # Schedule monitoring on the Tkinter main thread
+        self.schedule_monitor_update()
 
     def setup_ui(self):
         # Menu bar
@@ -724,26 +725,52 @@ class AC7Configurator:
     # Monitor Tab Functions
     # =========================================================================
 
-    def start_monitor_thread(self):
-        """Start background thread for live input monitoring"""
-        def loop():
-            while self.running:
-                try:
-                    self.update_live_monitor()
-                except:
-                    pass
-                time.sleep(0.033)  # ~30Hz
+    def schedule_monitor_update(self):
+        """Poll inputs on the Tkinter main thread at approximately 30 Hz."""
+        self.monitor_after_id = None
+        if not self.running:
+            return
+        try:
+            self.update_live_monitor()
+        except Exception as exc:
+            self.status_label.config(text=f"Monitor error: {exc}")
+        finally:
+            if self.running:
+                self.monitor_after_id = self.root.after(33, self.schedule_monitor_update)
 
-        threading.Thread(target=loop, daemon=True).start()
+    def update_buttons(self, buttons):
+        """Keep canvas items and update only buttons whose state changed."""
+        if len(self.button_items) != len(buttons):
+            self.button_canvas.delete("all")
+            self.button_items = []
+            self.button_states = [None] * len(buttons)
+            cols, size, pad = 8, 30, 5
+            for i in range(len(buttons)):
+                row, col = divmod(i, cols)
+                x, y = col * (size + pad) + pad, row * (size + pad) + pad
+                item = self.button_canvas.create_rectangle(
+                    x, y, x + size, y + size, fill="#E0E0E0", outline="#333"
+                )
+                self.button_items.append(item)
+                self.button_canvas.create_text(x + size // 2, y + size // 2, text=str(i + 1))
+
+        for i, pressed in enumerate(buttons):
+            if self.button_states[i] != pressed:
+                self.button_canvas.itemconfigure(
+                    self.button_items[i], fill="#4CAF50" if pressed else "#E0E0E0"
+                )
+                self.button_states[i] = pressed
 
     def update_live_monitor(self):
         """Update live input display"""
         idx = self.device_combo.current()
         if idx < 0:
+            self.update_buttons([])
             return
 
         state = self.monitor.get_state(idx)
         if not state:
+            self.update_buttons([])
             return
 
         # Update axes
@@ -756,18 +783,7 @@ class AC7Configurator:
                 bar['value'] = 50
                 self.axis_labels[i].config(text="N/A")
 
-        # Update buttons
-        self.button_canvas.delete("all")
-        cols = 8
-        size = 30
-        pad = 5
-
-        for i, pressed in enumerate(state['buttons']):
-            r, c = i // cols, i % cols
-            x, y = c * (size + pad) + pad, r * (size + pad) + pad
-            color = "#4CAF50" if pressed else "#E0E0E0"
-            self.button_canvas.create_rectangle(x, y, x+size, y+size, fill=color, outline="#333")
-            self.button_canvas.create_text(x+size//2, y+size//2, text=str(i+1))
+        self.update_buttons(state['buttons'])
 
         # Update hats
         dirs = {(0,0): "-", (0,1): "U", (0,-1): "D", (-1,0): "L", (1,0): "R",
@@ -993,6 +1009,9 @@ GitHub: https://github.com/YOUR_USERNAME/ac7-hotas-configurator
     def on_closing(self):
         """Clean shutdown"""
         self.running = False
+        if self.monitor_after_id is not None:
+            self.root.after_cancel(self.monitor_after_id)
+            self.monitor_after_id = None
         self.monitor.close()
         self.root.destroy()
 
