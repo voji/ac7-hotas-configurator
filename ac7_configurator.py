@@ -418,97 +418,27 @@ class AC7Configurator:
         if self.config_path:
             self.path_label.config(text=self.config_path, foreground="green")
 
-        # Notebook tabs
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        device_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Devices", menu=device_menu)
+        device_menu.add_command(label="Refresh Devices", command=self.refresh_devices)
+        device_menu.add_command(label="Apply All Profiles", command=self.apply_all_profiles)
 
-        # Tab 1: Detected Devices & Quick Setup
-        self.setup_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.setup_tab, text="Setup")
+        self.monitor_frame = ttk.Frame(self.root)
+        self.monitor_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        self.setup_monitor()
 
-        # Tab 2: Controller Monitor
-        self.monitor_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.monitor_tab, text="Controller Monitor")
-
-        self.setup_setup_tab()
-        self.setup_monitor_tab()
-
-    def setup_setup_tab(self):
-        """Setup tab with detected devices and quick configuration"""
-        main_frame = ttk.Frame(self.setup_tab, padding=10)
+    def setup_monitor(self):
+        """Live controller monitor for manual binding"""
+        main_frame = ttk.Frame(self.monitor_frame, padding=10)
         main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Detected devices section
-        devices_frame = ttk.LabelFrame(main_frame, text="Detected Flight Controllers", padding=10)
-        devices_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
-
-        # Device list
-        columns = ("Device", "Type", "VID:PID", "Status", "Profile")
-        self.device_tree = ttk.Treeview(devices_frame, columns=columns, show="headings", height=8)
-
-        self.device_tree.heading("Device", text="Device Name")
-        self.device_tree.heading("Type", text="Type")
-        self.device_tree.heading("VID:PID", text="VID:PID")
-        self.device_tree.heading("Status", text="AC7 Status")
-        self.device_tree.heading("Profile", text="Profile")
-
-        self.device_tree.column("Device", width=280)
-        self.device_tree.column("Type", width=80)
-        self.device_tree.column("VID:PID", width=100)
-        self.device_tree.column("Status", width=120)
-        self.device_tree.column("Profile", width=150)
-
-        scrollbar = ttk.Scrollbar(devices_frame, orient=tk.VERTICAL, command=self.device_tree.yview)
-        self.device_tree.configure(yscrollcommand=scrollbar.set)
-
-        self.device_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        # Buttons
-        btn_frame = ttk.Frame(devices_frame)
-        btn_frame.pack(fill=tk.X, pady=(10, 0))
-
-        ttk.Button(btn_frame, text="Refresh Devices", command=self.refresh_devices).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="Apply All Profiles", command=self.apply_all_profiles).pack(side=tk.LEFT, padx=5)
-
-        # Current bindings section
-        bindings_frame = ttk.LabelFrame(main_frame, text="Current Bindings (from Input.ini)", padding=10)
-        bindings_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
-
-        columns2 = ("Function", "Device", "Input", "Modifiers")
-        self.bindings_tree = ttk.Treeview(bindings_frame, columns=columns2, show="headings", height=10)
-
-        for col in columns2:
-            self.bindings_tree.heading(col, text=col)
-
-        self.bindings_tree.column("Function", width=180)
-        self.bindings_tree.column("Device", width=200)
-        self.bindings_tree.column("Input", width=120)
-        self.bindings_tree.column("Modifiers", width=80)
-
-        scrollbar2 = ttk.Scrollbar(bindings_frame, orient=tk.VERTICAL, command=self.bindings_tree.yview)
-        self.bindings_tree.configure(yscrollcommand=scrollbar2.set)
-
-        self.bindings_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar2.pack(side=tk.RIGHT, fill=tk.Y)
-
-        self.bindings_tree.bind("<Double-1>", self.on_binding_double_click)
-
-        # Bottom buttons
         bottom_frame = ttk.Frame(main_frame)
-        bottom_frame.pack(fill=tk.X)
-
+        bottom_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 0))
         ttk.Button(bottom_frame, text="Load from Input.ini", command=self.load_config).pack(side=tk.LEFT, padx=5)
         ttk.Button(bottom_frame, text="Save to Input.ini", command=self.save_config).pack(side=tk.LEFT, padx=5)
         ttk.Button(bottom_frame, text="Clear All Bindings", command=self.clear_bindings).pack(side=tk.LEFT, padx=5)
-
         self.status_label = ttk.Label(bottom_frame, text="Ready")
         self.status_label.pack(side=tk.RIGHT, padx=10)
-
-    def setup_monitor_tab(self):
-        """Live controller monitor for manual binding"""
-        main_frame = ttk.Frame(self.monitor_tab, padding=10)
-        main_frame.pack(fill=tk.BOTH, expand=True)
 
         # Device selector
         device_frame = ttk.LabelFrame(main_frame, text="Select Device", padding=10)
@@ -579,11 +509,32 @@ class AC7Configurator:
 
         ttk.Label(assign_frame, text="Select function to assign:").pack(anchor=tk.W)
 
-        self.func_listbox = tk.Listbox(assign_frame, height=15)
-        self.func_listbox.pack(fill=tk.BOTH, expand=True, pady=5)
+        function_frame = ttk.Frame(assign_frame)
+        function_frame.pack(fill=tk.BOTH, expand=True, pady=5)
+        function_frame.rowconfigure(0, weight=1)
+        function_frame.columnconfigure(0, weight=1)
 
+        self.function_tree = ttk.Treeview(
+            function_frame, columns=("Function", "Input", "Device"),
+            show="headings", selectmode="browse", height=15
+        )
+        for column, width in (("Function", 150), ("Input", 120), ("Device", 160)):
+            self.function_tree.heading(column, text=column)
+            self.function_tree.column(column, width=width, minwidth=80)
+        self.function_tree.grid(row=0, column=0, sticky="nsew")
+        self.function_tree.bind("<Double-1>", self.on_binding_double_click)
+        self.function_tree.bind("<<TreeviewSelect>>", self.on_function_selected)
+        scrollbar = ttk.Scrollbar(function_frame, orient=tk.VERTICAL,
+                                  command=self.function_tree.yview)
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        self.function_tree.configure(yscrollcommand=scrollbar.set)
+        self.function_tree.tag_configure("assigned", foreground="#176b32")
+        self.function_tree.tag_configure("unassigned", foreground="#666666")
         for code, name in FLIGHT_FUNCTIONS:
-            self.func_listbox.insert(tk.END, f"{code} - {name}")
+            self.function_tree.insert(
+                "", tk.END, iid=code, values=(name, "Not assigned", ""),
+                tags=("unassigned",)
+            )
 
         # Modifiers
         mod_frame = ttk.LabelFrame(assign_frame, text="Modifiers", padding=5)
@@ -592,11 +543,57 @@ class AC7Configurator:
         self.reverse_var = tk.BooleanVar()
         self.convert_var = tk.BooleanVar()
 
-        ttk.Checkbutton(mod_frame, text=":R - Reverse/Invert axis", variable=self.reverse_var).pack(anchor=tk.W)
-        ttk.Checkbutton(mod_frame, text=":C - Convert range (for throttle)", variable=self.convert_var).pack(anchor=tk.W)
+        self.reverse_check = ttk.Checkbutton(
+            mod_frame, text=":R - Reverse/Invert axis", variable=self.reverse_var,
+            command=self.on_modifiers_changed, state="disabled"
+        )
+        self.reverse_check.pack(anchor=tk.W)
+        self.convert_check = ttk.Checkbutton(
+            mod_frame, text=":C - Convert range (for throttle)", variable=self.convert_var,
+            command=self.on_modifiers_changed, state="disabled"
+        )
+        self.convert_check.pack(anchor=tk.W)
 
-        self.assign_status = ttk.Label(assign_frame, text="Click an axis/button then select function")
+        self.modifier_status = ttk.Label(mod_frame, text="Select a function to view its modifiers", wraplength=400)
+        self.modifier_status.pack(anchor=tk.W, pady=(5, 0))
+        self.assign_status = ttk.Label(assign_frame, text="Select a function, then click an axis or button")
         self.assign_status.pack(pady=5)
+
+    def on_function_selected(self, event=None):
+        """Show modifiers of the selected assignment; disable them for empty rows."""
+        selection = self.function_tree.selection()
+        data = self.assignments.get(selection[0]) if selection else None
+        modifiers = data.get('modifiers', '').split(':') if data else []
+        self.reverse_var.set('R' in modifiers)
+        self.convert_var.set('C' in modifiers)
+        state = '!disabled' if data else 'disabled'
+        self.reverse_check.state([state])
+        self.convert_check.state([state])
+        if data:
+            self.modifier_status.config(text=(
+                f"Current assignment: {data['input']}{data['modifiers']} | "
+                f"Invert: {'On' if self.reverse_var.get() else 'Off'} | "
+                f"Convert range: {'On' if self.convert_var.get() else 'Off'}"
+            ))
+        elif selection:
+            self.modifier_status.config(text="Not assigned - assign an input to enable modifiers")
+        else:
+            self.modifier_status.config(text="Select a function to view its modifiers")
+
+    def on_modifiers_changed(self):
+        """Apply checkbox changes directly to the selected existing assignment."""
+        selection = self.function_tree.selection()
+        data = self.assignments.get(selection[0]) if selection else None
+        if not data:
+            self.on_function_selected()
+            return
+        modifiers = [part for part in data['modifiers'].split(':') if part and part not in ('R', 'C')]
+        if self.reverse_var.get():
+            modifiers.append('R')
+        if self.convert_var.get():
+            modifiers.append('C')
+        data['modifiers'] = ''.join(':' + part for part in modifiers)
+        self.update_function_assignments()
 
     # =========================================================================
     # Device Management
@@ -606,52 +603,21 @@ class AC7Configurator:
         """Refresh and display detected devices"""
         self.monitor.refresh()
 
-        # Clear device tree
-        for item in self.device_tree.get_children():
-            self.device_tree.delete(item)
-
         # Update combo boxes
         device_names = []
 
         for i, info in enumerate(self.monitor.device_info):
-            name = info['name']
-            vid = info['vid']
-            pid = info['pid']
-            profile = info['profile']
-
-            # Determine type and status
-            vendor = KNOWN_VENDORS.get(vid, "Unknown")
-            vid_pid_str = f"{vid:04X}:{pid:04X}" if vid else "Unknown"
-
-            if profile:
-                dev_type = profile.get('type', 'unknown').title()
-                profile_name = profile.get('name', 'Custom')
-                status = "Supported"
-            else:
-                dev_type = "Unknown"
-                profile_name = "None (manual config)"
-                status = "Manual Config"
-
-            # Check if it's a known flight sim vendor
-            if vid in [0x231D, 0x4098, 0x044F, 0x06A3]:
-                tag = "flightsim"
-            else:
-                tag = "other"
-
-            self.device_tree.insert("", tk.END, values=(
-                name[:40], dev_type, vid_pid_str, status, profile_name
-            ), tags=(tag,))
-
-            device_names.append(f"{i}: {name[:50]}")
-
-        # Color coding
-        self.device_tree.tag_configure("flightsim", background="#e8f5e9")
+            device_names.append(f"{i}: {info['name'][:50]}")
 
         # Update combo boxes
         self.device_combo['values'] = device_names
         if device_names:
             self.device_combo.current(0)
             self.on_device_selected(None)
+        else:
+            self.device_combo.set("")
+            self.device_info_label.config(text="No devices connected")
+            self.update_buttons([])
 
         self.status_label.config(text=f"Found {len(self.monitor.joysticks)} devices")
 
@@ -692,7 +658,7 @@ class AC7Configurator:
                         'modifiers': modifiers,
                     }
 
-        self.update_bindings_tree()
+        self.update_function_assignments()
 
     def apply_all_profiles(self):
         """Apply default profiles for all detected devices"""
@@ -715,7 +681,7 @@ class AC7Configurator:
                     }
                 applied += 1
 
-        self.update_bindings_tree()
+        self.update_function_assignments()
         self.status_label.config(text=f"Applied {applied} device profiles")
 
         if applied > 0:
@@ -808,13 +774,12 @@ class AC7Configurator:
 
     def assign_input(self, input_type, input_idx):
         """Assign an input to selected function"""
-        selection = self.func_listbox.curselection()
+        selection = self.function_tree.selection()
         if not selection:
             self.assign_status.config(text="Select a function first!", foreground="red")
             return
 
-        func_str = self.func_listbox.get(selection[0])
-        func_code = func_str.split(" - ")[0]
+        func_code = selection[0]
 
         device_idx = self.device_combo.current()
         if device_idx < 0:
@@ -843,7 +808,7 @@ class AC7Configurator:
             'modifiers': mods,
         }
 
-        self.update_bindings_tree()
+        self.update_function_assignments()
         self.assign_status.config(text=f"Assigned {input_str}{mods} to {func_code}", foreground="green")
 
     # =========================================================================
@@ -907,7 +872,7 @@ class AC7Configurator:
                             'modifiers': mods,
                         }
 
-            self.update_bindings_tree()
+            self.update_function_assignments()
             self.status_label.config(text=f"Loaded {len(self.assignments)} bindings")
 
         except Exception as e:
@@ -1010,35 +975,36 @@ class AC7Configurator:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to save: {e}")
 
-    def update_bindings_tree(self):
-        """Update the bindings treeview"""
-        for item in self.bindings_tree.get_children():
-            self.bindings_tree.delete(item)
-
-        for func, data in sorted(self.assignments.items()):
-            self.bindings_tree.insert("", tk.END, values=(
-                func,
-                data.get('device_name', 'Unknown')[:30],
-                data['input'],
-                data['modifiers']
-            ))
+    def update_function_assignments(self):
+        """Refresh assignment feedback without replacing rows or selection."""
+        for code, name in FLIGHT_FUNCTIONS:
+            data = self.assignments.get(code)
+            if data:
+                values = (
+                    name, data['input'] + data['modifiers'],
+                    data.get('device_name', 'Unknown')
+                )
+                tags = ("assigned",)
+            else:
+                values = (name, "Not assigned", "")
+                tags = ("unassigned",)
+            self.function_tree.item(code, values=values, tags=tags)
+        self.on_function_selected()
 
     def on_binding_double_click(self, event):
         """Delete binding on double-click"""
-        sel = self.bindings_tree.selection()
-        if sel:
-            item = self.bindings_tree.item(sel[0])
-            func = item['values'][0]
+        func = self.function_tree.identify_row(event.y)
+        if func:
             if func in self.assignments:
                 if messagebox.askyesno("Delete?", f"Remove binding for {func}?"):
                     del self.assignments[func]
-                    self.update_bindings_tree()
+                    self.update_function_assignments()
 
     def clear_bindings(self):
         """Clear all bindings"""
         if messagebox.askyesno("Confirm", "Clear all bindings?"):
             self.assignments.clear()
-            self.update_bindings_tree()
+            self.update_function_assignments()
 
     # =========================================================================
     # Misc

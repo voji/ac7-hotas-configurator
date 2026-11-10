@@ -59,14 +59,14 @@ The tool includes built-in profiles for:
 ### Quick Start
 
 1. Launch the configurator
-2. Your connected controllers will be auto-detected on the **Setup** tab
-3. Click **"Apply All Profiles"** to apply default bindings for detected devices
+2. Your connected controllers will be auto-detected in the **Controller Monitor** device selector
+3. Choose **Devices > Apply All Profiles** to apply default bindings for detected devices
 4. Click **"Save to Input.ini"** to save changes
 5. Restart ACE COMBAT 7
 
 ### Manual Binding
 
-1. Go to the **Controller Monitor** tab
+1. Use the **Controller Monitor** screen
 2. Select your device from the dropdown
 3. Move an axis or press a button - you'll see it highlighted in the live display
 4. Click **"Assign"** next to an axis, or click directly on a button
@@ -118,7 +118,7 @@ Multiple POV hats: `POV_U2`, `POV_D2`, etc.
 
 - Make sure the device is connected and powered on
 - Try unplugging and reconnecting
-- Click "Refresh Devices"
+- Choose **Devices > Refresh Devices**
 
 ### Device detected by tool but not by AC7
 
