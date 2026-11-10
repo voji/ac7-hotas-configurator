@@ -8,7 +8,6 @@ A GUI tool for configuring joysticks, throttles, and rudder pedals for **ACE COM
 - **Pre-configured profiles** for popular devices
 - **Live input monitoring** - see your axes and buttons in real-time
 - **Easy binding assignment** - click an input and assign it to a flight function
-- **Keyboard emulator** for rudder pedals that AC7 doesn't detect (like WinWing Orion)
 - Automatic detection of AC7's `Input.ini` location
 
 ## Supported Devices
@@ -24,9 +23,6 @@ The tool includes built-in profiles for:
 | Thrustmaster TWCS Throttle | Throttle | Full Support |
 | Thrustmaster Warthog | Stick + Throttle | Full Support |
 | Logitech Extreme 3D Pro | Stick | Full Support |
-| WinWing Orion Rudder | Rudder | Via Emulator* |
-
-*AC7 doesn't natively detect WinWing Orion pedals. The built-in keyboard emulator converts pedal input to keyboard presses (Q/E for yaw).
 
 **Don't see your device?** You can still use the Controller Monitor tab to manually assign bindings for any DirectInput device.
 
@@ -80,19 +76,6 @@ The tool includes built-in profiles for:
    - `:C` - Convert range (required for throttle axes)
 7. Save to Input.ini
 
-### Rudder Pedal Emulator
-
-For pedals that AC7 doesn't detect (like WinWing Orion):
-
-1. Go to the **Rudder Emulator** tab
-2. Select your pedal device from the dropdown
-3. Set the correct axis (usually 2 for Z-axis)
-4. Adjust deadzone if needed
-5. Click **"Start Emulator"**
-6. Launch AC7 - the emulator converts pedal input to Q/E keyboard presses
-
-**Keep the emulator running while playing!**
-
 ## AC7 Input.ini Format
 
 For those who want to edit `Input.ini` manually, the format is:
@@ -140,9 +123,8 @@ Multiple POV hats: `POV_U2`, `POV_D2`, etc.
 ### Device detected by tool but not by AC7
 
 Some devices aren't enumerated by AC7's DirectInput implementation. Options:
-1. Use the keyboard emulator (for rudder pedals)
-2. Use vJoy to create a virtual joystick that AC7 can see
-3. Use x360ce to emulate an Xbox controller
+1. Use vJoy to create a virtual joystick that AC7 can see
+2. Use x360ce to emulate an Xbox controller
 
 ### Throttle doesn't work / is inverted
 
@@ -154,12 +136,6 @@ Some devices aren't enumerated by AC7's DirectInput implementation. Options:
 
 - Make sure to save (File > Save or "Save to Input.ini" button)
 - **Restart AC7** - the game only reads Input.ini on startup
-
-### Pedal emulator not working
-
-- Make sure to select the correct device
-- Verify the axis number (watch the live display as you move pedals)
-- Check that AC7 keyboard controls use Q/E for yaw (default)
 
 ## Contributing
 
@@ -176,7 +152,7 @@ MIT License - see [LICENSE](LICENSE) file.
 ## Credits
 
 - Inspired by various AC7 HOTAS configuration guides on Steam and Reddit
-- Built with Python, pygame, and pynput
+- Built with Python and pygame
 
 ## Disclaimer
 

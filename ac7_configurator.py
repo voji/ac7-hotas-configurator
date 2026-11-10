@@ -1,7 +1,6 @@
 """
 ACE COMBAT 7 HOTAS Configurator
 Complete GUI for joystick/throttle/rudder configuration
-Includes pedal-to-keyboard emulator for unsupported devices
 
 GitHub: https://github.com/YOUR_USERNAME/ac7-hotas-configurator
 """
@@ -24,11 +23,6 @@ def check_dependencies():
     except ImportError:
         missing.append("pygame")
 
-    try:
-        import pynput
-    except ImportError:
-        missing.append("pynput")
-
     if missing:
         msg = f"Missing required packages: {', '.join(missing)}\n\n"
         msg += "Install them with:\n"
@@ -47,7 +41,6 @@ def check_dependencies():
 check_dependencies()
 
 import pygame
-from pynput.keyboard import Controller as KeyboardController
 
 # Windows registry for device detection
 try:
@@ -170,14 +163,6 @@ DEVICE_PROFILES = {
         'bindings': {
             'Flight_Throttle': 'Z:R:C',
         }
-    },
-    # WinWing Orion (rudder - needs keyboard emulation)
-    (0x4098, 0xBEF0): {
-        'name': 'WinWing Orion Rudder',
-        'type': 'rudder',
-        'needs_emulation': True,
-        'rudder_axis': 2,
-        'bindings': {}
     },
     # Logitech Extreme 3D Pro
     (0x046D, 0xC215): {
@@ -306,100 +291,6 @@ def match_device_to_registry(pygame_name, registry_devices):
 
 
 # =============================================================================
-# Keyboard Emulator for Unsupported Rudder Pedals
-# =============================================================================
-
-class KeyboardEmulator:
-    """Converts pedal/axis input to keyboard presses for yaw control"""
-
-    def __init__(self):
-        self.running = False
-        self.thread = None
-        self.deadzone = 0.15
-        self.yaw_left_key = 'q'
-        self.yaw_right_key = 'e'
-        self.rudder_axis = 2
-        self.device_index = -1
-        self.status_callback = None
-
-    def start(self, device_index, deadzone=0.15, left_key='q', right_key='e', axis=2, status_callback=None):
-        if self.running:
-            return False
-
-        self.device_index = device_index
-        self.deadzone = deadzone
-        self.yaw_left_key = left_key
-        self.yaw_right_key = right_key
-        self.rudder_axis = axis
-        self.status_callback = status_callback
-        self.running = True
-        self.thread = threading.Thread(target=self._run, daemon=True)
-        self.thread.start()
-        return True
-
-    def stop(self):
-        self.running = False
-
-    def _run(self):
-        keyboard = None
-        try:
-            keyboard = KeyboardController()
-
-            js = pygame.joystick.Joystick(self.device_index)
-            js.init()
-
-            if self.rudder_axis >= js.get_numaxes():
-                if self.status_callback:
-                    self.status_callback(f"Error: Axis {self.rudder_axis} not available")
-                self.running = False
-                return
-
-            left_pressed = False
-            right_pressed = False
-
-            while self.running:
-                try:
-                    pygame.event.pump()
-                    rudder = js.get_axis(self.rudder_axis)
-
-                    should_left = rudder < -self.deadzone
-                    should_right = rudder > self.deadzone
-
-                    if should_left and not left_pressed:
-                        keyboard.press(self.yaw_left_key)
-                        left_pressed = True
-                    elif not should_left and left_pressed:
-                        keyboard.release(self.yaw_left_key)
-                        left_pressed = False
-
-                    if should_right and not right_pressed:
-                        keyboard.press(self.yaw_right_key)
-                        right_pressed = True
-                    elif not should_right and right_pressed:
-                        keyboard.release(self.yaw_right_key)
-                        right_pressed = False
-
-                    time.sleep(0.016)  # ~60Hz
-
-                except Exception as e:
-                    if self.status_callback:
-                        self.status_callback(f"Loop error: {e}")
-                    time.sleep(0.1)
-
-        except Exception as e:
-            if self.status_callback:
-                self.status_callback(f"Error: {e}")
-            self.running = False
-        finally:
-            if keyboard:
-                try:
-                    keyboard.release(self.yaw_left_key)
-                    keyboard.release(self.yaw_right_key)
-                except:
-                    pass
-
-
-# =============================================================================
 # Device Monitor
 # =============================================================================
 
@@ -475,7 +366,6 @@ class AC7Configurator:
 
         # Core components
         self.monitor = DeviceMonitor()
-        self.emulator = KeyboardEmulator()
         self.running = True
 
         # State
@@ -538,13 +428,8 @@ class AC7Configurator:
         self.monitor_tab = ttk.Frame(self.notebook)
         self.notebook.add(self.monitor_tab, text="Controller Monitor")
 
-        # Tab 3: Rudder Emulator
-        self.emulator_tab = ttk.Frame(self.notebook)
-        self.notebook.add(self.emulator_tab, text="Rudder Emulator")
-
         self.setup_setup_tab()
         self.setup_monitor_tab()
-        self.setup_emulator_tab()
 
     def setup_setup_tab(self):
         """Setup tab with detected devices and quick configuration"""
@@ -711,92 +596,6 @@ class AC7Configurator:
         self.assign_status = ttk.Label(assign_frame, text="Click an axis/button then select function")
         self.assign_status.pack(pady=5)
 
-    def setup_emulator_tab(self):
-        """Rudder pedal to keyboard emulator"""
-        frame = ttk.Frame(self.emulator_tab, padding=20)
-        frame.pack(fill=tk.BOTH, expand=True)
-
-        ttk.Label(frame, text="Rudder Pedal to Keyboard Emulator",
-                 font=("", 14, "bold")).pack(pady=(0, 10))
-
-        info_text = (
-            "Some rudder pedals (like WinWing Orion) are not detected by AC7.\n"
-            "This emulator converts pedal movement to keyboard presses (Q/E for yaw).\n"
-            "Start this before launching AC7."
-        )
-        ttk.Label(frame, text=info_text, justify=tk.CENTER).pack(pady=(0, 20))
-
-        # Device selection
-        device_frame = ttk.LabelFrame(frame, text="Pedal Device", padding=10)
-        device_frame.pack(fill=tk.X, pady=(0, 10))
-
-        self.emu_device_combo = ttk.Combobox(device_frame, state="readonly", width=50)
-        self.emu_device_combo.pack(side=tk.LEFT, padx=(0, 10))
-
-        ttk.Button(device_frame, text="Refresh", command=self.refresh_emu_devices).pack(side=tk.LEFT)
-
-        # Settings
-        settings_frame = ttk.LabelFrame(frame, text="Settings", padding=15)
-        settings_frame.pack(fill=tk.X, pady=(0, 10))
-
-        # Axis selection
-        axis_row = ttk.Frame(settings_frame)
-        axis_row.pack(fill=tk.X, pady=5)
-        ttk.Label(axis_row, text="Rudder Axis:", width=15).pack(side=tk.LEFT)
-        self.emu_axis_var = tk.IntVar(value=2)
-        ttk.Spinbox(axis_row, from_=0, to=7, textvariable=self.emu_axis_var, width=5).pack(side=tk.LEFT)
-        ttk.Label(axis_row, text="(0=X, 1=Y, 2=Z, 3=Rx, 4=Ry, 5=Rz)").pack(side=tk.LEFT, padx=10)
-
-        # Deadzone
-        dz_row = ttk.Frame(settings_frame)
-        dz_row.pack(fill=tk.X, pady=5)
-        ttk.Label(dz_row, text="Deadzone:", width=15).pack(side=tk.LEFT)
-        self.emu_deadzone_var = tk.DoubleVar(value=0.15)
-        self.emu_deadzone_scale = ttk.Scale(dz_row, from_=0.05, to=0.5,
-                                           variable=self.emu_deadzone_var, length=200)
-        self.emu_deadzone_scale.pack(side=tk.LEFT, padx=10)
-        self.emu_deadzone_label = ttk.Label(dz_row, text="0.15")
-        self.emu_deadzone_label.pack(side=tk.LEFT)
-        self.emu_deadzone_var.trace('w', lambda *args: self.emu_deadzone_label.config(
-            text=f"{self.emu_deadzone_var.get():.2f}"))
-
-        # Keys
-        keys_row = ttk.Frame(settings_frame)
-        keys_row.pack(fill=tk.X, pady=5)
-        ttk.Label(keys_row, text="Yaw Left Key:", width=15).pack(side=tk.LEFT)
-        self.emu_left_key = tk.StringVar(value="q")
-        ttk.Entry(keys_row, textvariable=self.emu_left_key, width=5).pack(side=tk.LEFT)
-        ttk.Label(keys_row, text="   Yaw Right Key:").pack(side=tk.LEFT, padx=(20, 0))
-        self.emu_right_key = tk.StringVar(value="e")
-        ttk.Entry(keys_row, textvariable=self.emu_right_key, width=5).pack(side=tk.LEFT, padx=5)
-
-        # Live display
-        live_frame = ttk.LabelFrame(frame, text="Live Pedal Input", padding=15)
-        live_frame.pack(fill=tk.X, pady=(0, 10))
-
-        self.emu_pedal_bar = ttk.Progressbar(live_frame, length=400, mode='determinate', maximum=100)
-        self.emu_pedal_bar.pack(pady=5)
-
-        labels_row = ttk.Frame(live_frame)
-        labels_row.pack(fill=tk.X)
-        ttk.Label(labels_row, text="LEFT").pack(side=tk.LEFT)
-        self.emu_value_label = ttk.Label(labels_row, text="0.00", font=("", 12))
-        self.emu_value_label.pack(side=tk.LEFT, expand=True)
-        ttk.Label(labels_row, text="RIGHT").pack(side=tk.RIGHT)
-
-        self.emu_direction_label = ttk.Label(live_frame, text="[ CENTER ]", font=("", 14, "bold"))
-        self.emu_direction_label.pack(pady=10)
-
-        # Start/Stop
-        self.emu_btn = ttk.Button(frame, text="Start Emulator", command=self.toggle_emulator, width=20)
-        self.emu_btn.pack(pady=10)
-
-        self.emu_status_label = ttk.Label(frame, text="Status: Stopped", foreground="red")
-        self.emu_status_label.pack()
-
-        # Initial population
-        self.refresh_emu_devices()
-
     # =========================================================================
     # Device Management
     # =========================================================================
@@ -825,8 +624,7 @@ class AC7Configurator:
             if profile:
                 dev_type = profile.get('type', 'unknown').title()
                 profile_name = profile.get('name', 'Custom')
-                needs_emu = profile.get('needs_emulation', False)
-                status = "Needs Emulator" if needs_emu else "Supported"
+                status = "Supported"
             else:
                 dev_type = "Unknown"
                 profile_name = "None (manual config)"
@@ -858,27 +656,6 @@ class AC7Configurator:
         # Load config if exists
         if self.config_path:
             self.load_config()
-
-    def refresh_emu_devices(self):
-        """Refresh emulator device list"""
-        devices = []
-        for i, info in enumerate(self.monitor.device_info):
-            devices.append(f"{i}: {info['name'][:50]}")
-
-        self.emu_device_combo['values'] = devices
-
-        # Try to auto-select rudder device
-        for i, info in enumerate(self.monitor.device_info):
-            name_lower = info['name'].lower()
-            if 'orion' in name_lower or 'rudder' in name_lower or 'pedal' in name_lower:
-                self.emu_device_combo.current(i)
-                # Set axis from profile if available
-                if info['profile'] and 'rudder_axis' in info['profile']:
-                    self.emu_axis_var.set(info['profile']['rudder_axis'])
-                return
-
-        if devices:
-            self.emu_device_combo.current(0)
 
     def on_device_selected(self, event):
         """Handle device selection in monitor tab"""
@@ -953,7 +730,6 @@ class AC7Configurator:
             while self.running:
                 try:
                     self.update_live_monitor()
-                    self.update_emu_display()
                 except:
                     pass
                 time.sleep(0.033)  # ~30Hz
@@ -999,30 +775,6 @@ class AC7Configurator:
         for i, lbl in enumerate(self.hat_labels):
             if i < len(state['hats']):
                 lbl.config(text=f"POV{i+1}: {dirs.get(state['hats'][i], '?')}")
-
-    def update_emu_display(self):
-        """Update emulator pedal display"""
-        idx = self.emu_device_combo.current()
-        if idx < 0 or idx >= len(self.monitor.joysticks):
-            return
-
-        state = self.monitor.get_state(idx)
-        if not state:
-            return
-
-        axis = self.emu_axis_var.get()
-        if axis < len(state['axes']):
-            val = state['axes'][axis]
-            self.emu_pedal_bar['value'] = (val + 1) * 50
-            self.emu_value_label.config(text=f"{val:+.2f}")
-
-            dz = self.emu_deadzone_var.get()
-            if val < -dz:
-                self.emu_direction_label.config(text="[ LEFT ]", foreground="blue")
-            elif val > dz:
-                self.emu_direction_label.config(text="[ RIGHT ]", foreground="red")
-            else:
-                self.emu_direction_label.config(text="[ CENTER ]", foreground="black")
 
     def on_button_click(self, event):
         """Handle button canvas click"""
@@ -1076,41 +828,6 @@ class AC7Configurator:
 
         self.update_bindings_tree()
         self.assign_status.config(text=f"Assigned {input_str}{mods} to {func_code}", foreground="green")
-
-    # =========================================================================
-    # Emulator
-    # =========================================================================
-
-    def toggle_emulator(self):
-        """Start/stop the keyboard emulator"""
-        if self.emulator.running:
-            self.emulator.stop()
-            self.emu_btn.config(text="Start Emulator")
-            self.emu_status_label.config(text="Status: Stopped", foreground="red")
-        else:
-            idx = self.emu_device_combo.current()
-            if idx < 0:
-                messagebox.showerror("Error", "Select a device first")
-                return
-
-            success = self.emulator.start(
-                device_index=idx,
-                deadzone=self.emu_deadzone_var.get(),
-                left_key=self.emu_left_key.get(),
-                right_key=self.emu_right_key.get(),
-                axis=self.emu_axis_var.get(),
-                status_callback=self.on_emu_status
-            )
-
-            if success:
-                self.emu_btn.config(text="Stop Emulator")
-                self.emu_status_label.config(text="Status: Running", foreground="green")
-            else:
-                messagebox.showerror("Error", "Failed to start emulator")
-
-    def on_emu_status(self, msg):
-        """Callback for emulator status updates"""
-        self.root.after(0, lambda: self.emu_status_label.config(text=f"Status: {msg}"))
 
     # =========================================================================
     # Config Management
@@ -1268,7 +985,6 @@ Features:
 - Auto-detects flight sim hardware
 - Pre-configured profiles for popular devices
 - Live input monitoring
-- Keyboard emulator for unsupported rudder pedals
 
 GitHub: https://github.com/YOUR_USERNAME/ac7-hotas-configurator
 """
@@ -1277,7 +993,6 @@ GitHub: https://github.com/YOUR_USERNAME/ac7-hotas-configurator
     def on_closing(self):
         """Clean shutdown"""
         self.running = False
-        self.emulator.stop()
         self.monitor.close()
         self.root.destroy()
 
