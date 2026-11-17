@@ -343,6 +343,7 @@ class AC7Configurator:
         # State
         self.config_path = None
         self.assignments = {}  # func -> {device_index, section_id, input, modifiers}
+        self.saved_assignment_state = {}
         self.detected_devices = []
         self.loaded_bindings = set()
         self.loaded_sections = {}
@@ -502,6 +503,7 @@ class AC7Configurator:
             self.function_tree.column(column, width=width, minwidth=80)
         self.function_tree.grid(row=0, column=0, sticky="nsew")
         self.function_tree.bind("<Double-1>", self.on_binding_double_click)
+        self.function_tree.bind("<Button-3>", self.on_binding_right_click)
         self.function_tree.bind("<<TreeviewSelect>>", self.on_function_selected)
         scrollbar = ttk.Scrollbar(function_frame, orient=tk.VERTICAL,
                                   command=self.function_tree.yview)
@@ -901,6 +903,7 @@ class AC7Configurator:
 
             self.update_function_assignments()
             self.status_label.config(text=f"Loaded {len(self.assignments)} bindings")
+            self.saved_assignment_state = self.assignment_state()
 
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load config: {e}")
@@ -1013,6 +1016,7 @@ class AC7Configurator:
             }
 
             self.status_label.config(text="Saved!")
+            self.saved_assignment_state = self.assignment_state()
             messagebox.showinfo("Success", f"Saved to:\n{self.config_path}\n\nRestart AC7 to apply changes.")
 
         except Exception as e:
@@ -1033,6 +1037,17 @@ class AC7Configurator:
                 tags = ("unassigned",)
             self.function_tree.item(code, values=values, tags=tags)
         self.on_function_selected()
+
+    def on_binding_right_click(self, event):
+        """Remove the binding under the pointer immediately."""
+        func = self.function_tree.identify_row(event.y)
+        if func:
+            self.function_tree.selection_set(func)
+            self.function_tree.focus(func)
+            if func in self.assignments:
+                del self.assignments[func]
+                self.update_function_assignments()
+        return "break"
 
     def on_binding_double_click(self, event):
         """Delete binding on double-click"""
@@ -1068,8 +1083,30 @@ GitHub: https://github.com/YOUR_USERNAME/ac7-hotas-configurator
 """
         messagebox.showinfo("About", msg)
 
+    def assignment_state(self):
+        """Capture persisted fields, ignoring transient device indices."""
+        return {
+            func: tuple(data.get(key, '') for key in (
+                'section_id', 'input', 'modifiers', 'device_name'
+            ))
+            for func, data in self.assignments.items()
+        }
+
     def on_closing(self):
         """Clean shutdown"""
+        if self.assignment_state() != self.saved_assignment_state:
+            save = messagebox.askyesnocancel(
+                "Unsaved changes",
+                "Save changes before exiting?\n\n"
+                "Yes: Save and exit\nNo: Exit without saving\nCancel: Keep editing",
+                parent=self.root
+            )
+            if save is None:
+                return
+            if save:
+                self.save_config()
+                if self.assignment_state() != self.saved_assignment_state:
+                    return
         self.running = False
         if self.monitor_after_id is not None:
             self.root.after_cancel(self.monitor_after_id)
